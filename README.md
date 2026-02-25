@@ -5,7 +5,7 @@ arXiv API (Atom/XML) から論文メタデータを取得し、Discord Webhook �
 - デフォルト監視トピック: LLM / Diffusion / PINN
 - submittedDate ソートで新着を取得
 - ルールベースで教育的キーワードを検出し `✔︎` を付与
-- トピックごとに `Latest` と `Educational / Beginner-friendly ✔︎` を分けて投稿
+- トピックごとに `Recent(直近N日)` と `Educational / Beginner-friendly ✔︎` を分けて投稿
 - 送信済み arXiv ID (`v1`, `v2` 付き) を `state/state.json` に保存して重複投稿を防止
 - GitHub Actions で毎日自動実行し、`state/` 更新を自動 commit/push
 
@@ -57,7 +57,8 @@ python -m src.main
 `config.yaml` で次を変更できます。
 
 - `lookback_hours`: 取りこぼし対策の再探索時間
-- `max_latest_items_per_topic`: トピックごとの最新論文の上限件数
+- `recent_window_days`: Recent欄に含める日数（デフォルト7日）
+- `max_recent_items_per_topic`: トピックごとのRecent論文の上限件数
 - `max_educational_items_per_topic`: トピックごとの教育的論文の抽出件数
 - `arxiv.max_results_per_topic`: API 取得件数
 - `topics[].query_terms` / `topics[].categories`: キーワードとカテゴリ
@@ -85,7 +86,7 @@ topics:
 - デフォルト3トピックを順番に問い合わせ、各クエリ間で `sleep(3.1)` して arXiv のレート制約に配慮
 - Discord は `allowed_mentions: {"parse": []}` を指定し、メンション事故を防止
 - Webhook `content` の 2000 文字制限を超えないように自動分割投稿
-- `last_success_utc` と `lookback_hours` を組み合わせた安全側 cutoff で遅延実行時の取りこぼしを減らす
+- `last_success_utc` と `lookback_hours` に加えて `recent_window_days`(既定7日) の範囲を対象にし、`sent_ids` で重複投稿を防止
 
 ## GitHub Actions
 

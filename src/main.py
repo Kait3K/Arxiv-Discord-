@@ -4,7 +4,7 @@ import logging
 import os
 import sys
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Dict, List
 
@@ -13,7 +13,7 @@ from dateutil import tz
 
 from .arxiv_client import ArxivClient, ArxivClientConfig
 from .discord_webhook import DiscordWebhookClient
-from .filter_rank import collect_candidates, split_latest_and_educational
+from .filter_rank import collect_candidates, split_recent_and_educational
 from .parser import parse_feed
 from .state import (
     append_sent_ids,
@@ -106,6 +106,7 @@ def build_digest_blocks(
     *,
     now_local: datetime,
     cutoff_utc: datetime,
+    recent_window_days: int,
     header_template: str,
     topic_results: List[Dict[str, Any]],
     title_max_length: int,
@@ -116,7 +117,7 @@ def build_digest_blocks(
 
     count_summary = ", ".join(
         (
-            f"{result['name']} (latest {len(result['latest_entries'])}, "
+            f"{result['name']} (recent {len(result['recent_entries'])}, "
             f"educational {len(result['educational_entries'])})"
         )
         for result in topic_results
@@ -135,17 +136,17 @@ def build_digest_blocks(
 
     for result in topic_results:
         name = result["name"]
-        latest_entries = result["latest_entries"]
+        recent_entries = result["recent_entries"]
         educational_entries = result["educational_entries"]
 
         section_lines = [
-            f"[{name}] latest {len(latest_entries)} / educational✔︎ {len(educational_entries)}",
-            "Latest (submittedDate desc):",
+            f"[{name}] recent {len(recent_entries)} / educational✔︎ {len(educational_entries)}",
+            f"Recent (within {recent_window_days} days, submittedDate desc):",
         ]
-        if not latest_entries:
-            section_lines.append("- (no new latest papers)")
+        if not recent_entries:
+            section_lines.append("- (no recent papers)")
         else:
-            for entry in latest_entries:
+            for entry in recent_entries:
                 section_lines.append(format_entry_line(entry, title_max_length))
 
         section_lines.append("Educational / Beginner-friendly ✔︎:")
@@ -182,11 +183,18 @@ def run() -> int:
 
     max_results_per_topic = int(arxiv_conf.get("max_results_per_topic", 200))
     legacy_max_items_per_topic = int(config.get("max_items_per_topic", 5))
-    max_latest_items_per_topic = int(
-        config.get("max_latest_items_per_topic", legacy_max_items_per_topic)
+    max_recent_items_per_topic = int(
+        config.get(
+            "max_recent_items_per_topic",
+            config.get("max_latest_items_per_topic", legacy_max_items_per_topic),
+        )
     )
     max_educational_items_per_topic = int(config.get("max_educational_items_per_topic", 1))
     lookback_hours = int(config.get("lookback_hours", 36))
+    recent_window_days = int(config.get("recent_window_days", 7))
+    if recent_window_days < 1:
+        logging.warning("recent_window_days=%s is invalid. Overriding to 7.", recent_window_days)
+        recent_window_days = 7
     report_timezone = str(config.get("report_timezone", "Asia/Tokyo"))
     title_max_length = int(discord_conf.get("title_max_length", 120))
     header_template = str(discord_conf.get("header_template", "arXiv Daily Digest ({date_jst})"))
@@ -197,10 +205,19 @@ def run() -> int:
     state = load_state(state_path)
     now_utc = utc_now()
     last_success_utc = get_last_success_utc(state)
-    cutoff_utc = compute_cutoff_utc(now_utc, last_success_utc, lookback_hours)
+    state_cutoff_utc = compute_cutoff_utc(now_utc, last_success_utc, lookback_hours)
+    recent_cutoff_utc = now_utc - timedelta(days=recent_window_days)
+    candidate_cutoff_utc = min(state_cutoff_utc, recent_cutoff_utc)
 
     logging.info("last_success_utc=%s", to_utc_iso(last_success_utc) if last_success_utc else "None")
-    logging.info("lookback_hours=%s cutoff_utc=%s", lookback_hours, to_utc_iso(cutoff_utc))
+    logging.info(
+        "lookback_hours=%s state_cutoff_utc=%s recent_window_days=%s recent_cutoff_utc=%s candidate_cutoff_utc=%s",
+        lookback_hours,
+        to_utc_iso(state_cutoff_utc),
+        recent_window_days,
+        to_utc_iso(recent_cutoff_utc),
+        to_utc_iso(candidate_cutoff_utc),
+    )
 
     sent_ids = sent_id_set(state)
     topic_results: List[Dict[str, Any]] = []
@@ -253,31 +270,31 @@ def run() -> int:
 
             candidates = collect_candidates(
                 parsed_entries,
-                cutoff_utc=cutoff_utc,
+                cutoff_utc=candidate_cutoff_utc,
                 sent_ids=sent_ids,
             )
-            latest_entries, educational_entries = split_latest_and_educational(
+            recent_entries, educational_entries = split_recent_and_educational(
                 candidates,
-                max_latest_items=max_latest_items_per_topic,
+                max_recent_items=max_recent_items_per_topic,
                 max_educational_items=max_educational_items_per_topic,
             )
             logging.info(
-                "topic=%s candidates=%s latest=%s educational=%s",
+                "topic=%s candidates=%s recent=%s educational=%s",
                 topic_name,
                 len(candidates),
-                len(latest_entries),
+                len(recent_entries),
                 len(educational_entries),
             )
 
             topic_results.append(
                 {
                     "name": topic_name,
-                    "latest_entries": latest_entries,
+                    "recent_entries": recent_entries,
                     "educational_entries": educational_entries,
                 }
             )
 
-            topic_sent_entries = latest_entries + educational_entries
+            topic_sent_entries = recent_entries + educational_entries
             for entry in topic_sent_entries:
                 # Avoid duplicates across topics within the same run.
                 sent_ids.add(entry["arxiv_id"])
@@ -295,7 +312,8 @@ def run() -> int:
 
         blocks = build_digest_blocks(
             now_local=now_local,
-            cutoff_utc=cutoff_utc,
+            cutoff_utc=candidate_cutoff_utc,
+            recent_window_days=recent_window_days,
             header_template=header_template,
             topic_results=topic_results,
             title_max_length=title_max_length,
@@ -303,7 +321,7 @@ def run() -> int:
         messages = discord_client.build_messages(blocks)
 
         total_selected = sum(
-            len(result["latest_entries"]) + len(result["educational_entries"])
+            len(result["recent_entries"]) + len(result["educational_entries"])
             for result in topic_results
         )
         logging.info(
@@ -319,7 +337,7 @@ def run() -> int:
         sent_entry_ids = [
             entry["arxiv_id"]
             for result in topic_results
-            for entry in (result.get("latest_entries", []) + result.get("educational_entries", []))
+            for entry in (result.get("recent_entries", []) + result.get("educational_entries", []))
         ]
         append_sent_ids(state, sent_entry_ids, max_sent_ids=max_sent_ids)
         update_success_metadata(

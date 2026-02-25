@@ -1,6 +1,7 @@
 report_timezone: Asia/Tokyo
 lookback_hours: 36
-max_latest_items_per_topic: 5
+recent_window_days: 7
+max_recent_items_per_topic: 5
 max_educational_items_per_topic: 1
 
 arxiv:

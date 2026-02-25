@@ -71,10 +71,10 @@ def collect_candidates(
     return sorted(candidates, key=sort_key)
 
 
-def split_latest_and_educational(
+def split_recent_and_educational(
     candidates: Iterable[Entry],
     *,
-    max_latest_items: int,
+    max_recent_items: int,
     max_educational_items: int,
 ) -> Tuple[List[Entry], List[Entry]]:
     non_educational: List[Entry] = []
@@ -86,13 +86,13 @@ def split_latest_and_educational(
         else:
             non_educational.append(entry)
 
-    latest_entries = non_educational[: max(max_latest_items, 0)]
+    recent_entries = non_educational[: max(max_recent_items, 0)]
 
     educational_limit = max(max_educational_items, 0)
     if educational_limit == 0 or not educational_pool:
-        return latest_entries, []
+        return recent_entries, []
 
     if len(educational_pool) <= educational_limit:
-        return latest_entries, educational_pool
+        return recent_entries, educational_pool
 
-    return latest_entries, random.sample(educational_pool, k=educational_limit)
+    return recent_entries, random.sample(educational_pool, k=educational_limit)
