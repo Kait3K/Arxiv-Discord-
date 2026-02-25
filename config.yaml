@@ -1,0 +1,55 @@
+report_timezone: Asia/Tokyo
+lookback_hours: 36
+max_latest_items_per_topic: 5
+max_educational_items_per_topic: 1
+
+arxiv:
+  endpoint: http://export.arxiv.org/api/query
+  user_agent: "arxiv-discord-digest/1.0 (contact: your-contact@example.com)"
+  request_timeout_seconds: 30
+  inter_query_sleep_seconds: 3.1
+  max_results_per_topic: 200
+
+state:
+  path: state/state.json
+  max_sent_ids: 20000
+
+discord:
+  header_template: "arXiv Daily Digest ({date_jst})"
+  max_content_length: 2000
+  title_max_length: 120
+  request_timeout_seconds: 30
+
+topics:
+  - name: LLM
+    query_terms:
+      - large language model
+      - LLM
+      - instruction tuning
+      - RLHF
+      - language model
+    categories:
+      - cs.CL
+      - cs.LG
+      - stat.ML
+
+  - name: Diffusion
+    query_terms:
+      - diffusion model
+      - DDPM
+      - score-based
+      - denoising diffusion
+    categories:
+      - cs.CV
+      - cs.LG
+      - stat.ML
+
+  - name: PINN
+    query_terms:
+      - physics-informed
+      - PINN
+      - physics informed neural network
+    categories:
+      - cs.LG
+      - math.NA
+      - physics.comp-ph
