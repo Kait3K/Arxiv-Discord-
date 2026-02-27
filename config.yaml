@@ -1,4 +1,6 @@
 report_timezone: Asia/Tokyo
+schedule:
+  daily_target_time_local: "10:00"
 lookback_hours: 36
 recent_window_days: 7
 max_recent_items_per_topic: 5

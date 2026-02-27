@@ -62,6 +62,7 @@ python -m src.main
 - `max_educational_items_per_topic`: トピックごとの教育的論文の抽出件数
 - `arxiv.max_results_per_topic`: API 取得件数
 - `topics[].query_terms` / `topics[].categories`: キーワードとカテゴリ
+- `schedule.daily_target_time_local`: レポートタイムゾーン基準の送信目標時刻 (既定 `10:00`)
 - `discord.title_max_length`: 1行タイトルのトリム長
 - `discord.header_template`: 見出しテンプレート (`{date_jst}`, `{datetime_jst}` を利用可能)
 
@@ -90,9 +91,12 @@ topics:
 
 ## GitHub Actions
 
-`/.github/workflows/daily.yml` で毎日 1 回実行します。
+`/.github/workflows/daily.yml` で朝の時間帯に複数回起動し、コード側で 1 日 1 回送信します。
 
-- cron: `0 1 * * *` (UTC) = 毎日 10:00 JST
+- cron: `0,30 22-23 * * *` + `0,30 0-2 * * *` (UTC)
+- 起動は 07:00-11:30 JST の 30 分おき
+- `schedule.daily_target_time_local` (既定 `10:00`) より前は処理をスキップ
+- 同一ローカル日付での重複送信はスキップ
 - 実行後に `state/` が更新されていれば自動で commit & push
 - 失敗時はジョブが non-zero で終了
 

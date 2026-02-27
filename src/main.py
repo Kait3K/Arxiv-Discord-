@@ -161,6 +161,66 @@ def build_digest_blocks(
     return blocks
 
 
+def parse_daily_target_time(value: str) -> tuple[int, int]:
+    default_hour = 10
+    default_minute = 0
+    parts = value.strip().split(":")
+    if len(parts) != 2:
+        logging.warning(
+            "Invalid schedule.daily_target_time_local '%s'. Falling back to %02d:%02d.",
+            value,
+            default_hour,
+            default_minute,
+        )
+        return default_hour, default_minute
+
+    try:
+        hour = int(parts[0])
+        minute = int(parts[1])
+    except ValueError:
+        logging.warning(
+            "Invalid schedule.daily_target_time_local '%s'. Falling back to %02d:%02d.",
+            value,
+            default_hour,
+            default_minute,
+        )
+        return default_hour, default_minute
+
+    if not (0 <= hour <= 23 and 0 <= minute <= 59):
+        logging.warning(
+            "Out-of-range schedule.daily_target_time_local '%s'. Falling back to %02d:%02d.",
+            value,
+            default_hour,
+            default_minute,
+        )
+        return default_hour, default_minute
+
+    return hour, minute
+
+
+def should_skip_daily_digest(
+    *,
+    now_local: datetime,
+    last_success_utc: datetime | None,
+    target_hour: int,
+    target_minute: int,
+) -> tuple[bool, str]:
+    if (now_local.hour, now_local.minute) < (target_hour, target_minute):
+        return True, f"before target time {target_hour:02d}:{target_minute:02d}"
+
+    if last_success_utc is None:
+        return False, ""
+
+    last_success_local = last_success_utc.astimezone(now_local.tzinfo)
+    if (
+        last_success_local.date() == now_local.date()
+        and (last_success_local.hour, last_success_local.minute) >= (target_hour, target_minute)
+    ):
+        return True, "already sent for this local date"
+
+    return False, ""
+
+
 def run() -> int:
     setup_logging()
 
@@ -172,6 +232,7 @@ def run() -> int:
     arxiv_conf = config.get("arxiv", {})
     state_conf = config.get("state", {})
     discord_conf = config.get("discord", {})
+    schedule_conf = config.get("schedule", {})
 
     inter_query_sleep = float(arxiv_conf.get("inter_query_sleep_seconds", 3.1))
     if inter_query_sleep < 3.0:
@@ -196,6 +257,8 @@ def run() -> int:
         logging.warning("recent_window_days=%s is invalid. Overriding to 7.", recent_window_days)
         recent_window_days = 7
     report_timezone = str(config.get("report_timezone", "Asia/Tokyo"))
+    daily_target_time_local = str(schedule_conf.get("daily_target_time_local", "10:00"))
+    target_hour, target_minute = parse_daily_target_time(daily_target_time_local)
     title_max_length = int(discord_conf.get("title_max_length", 120))
     header_template = str(discord_conf.get("header_template", "arXiv Daily Digest ({date_jst})"))
 
@@ -205,6 +268,28 @@ def run() -> int:
     state = load_state(state_path)
     now_utc = utc_now()
     last_success_utc = get_last_success_utc(state)
+
+    tz_info = tz.gettz(report_timezone)
+    if tz_info is None:
+        logging.warning("Invalid report timezone '%s'. Falling back to UTC.", report_timezone)
+        now_local = now_utc
+    else:
+        now_local = now_utc.astimezone(tz_info)
+
+    should_skip, skip_reason = should_skip_daily_digest(
+        now_local=now_local,
+        last_success_utc=last_success_utc,
+        target_hour=target_hour,
+        target_minute=target_minute,
+    )
+    if should_skip:
+        logging.info(
+            "Skipping digest run: %s (now_local=%s)",
+            skip_reason,
+            now_local.strftime("%Y-%m-%d %H:%M %Z"),
+        )
+        return 0
+
     state_cutoff_utc = compute_cutoff_utc(now_utc, last_success_utc, lookback_hours)
     recent_cutoff_utc = now_utc - timedelta(days=recent_window_days)
     candidate_cutoff_utc = min(state_cutoff_utc, recent_cutoff_utc)
@@ -302,13 +387,6 @@ def run() -> int:
             if idx < len(topics) - 1:
                 logging.info("sleep %.1f sec between arXiv queries", inter_query_sleep)
                 time.sleep(inter_query_sleep)
-
-        tz_info = tz.gettz(report_timezone)
-        if tz_info is None:
-            logging.warning("Invalid report timezone '%s'. Falling back to UTC.", report_timezone)
-            now_local = now_utc
-        else:
-            now_local = now_utc.astimezone(tz_info)
 
         blocks = build_digest_blocks(
             now_local=now_local,
