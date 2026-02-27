@@ -1,10 +1,10 @@
 # arXiv New Paper Discord Digest Bot
 
-arXiv API (Atom/XML) から論文メタデータを取得し、Discord Webhook に日次ダイジェスト投稿する Python Bot です。
+arXiv API (Atom/XML) から論文メタデータを取得し、Discord Webhook に日次ダイジェスト投稿する Bot です。
 
-- デフォルト監視トピック: LLM / Diffusion / PINN
+- トピック: LLM / Diffusion / PINN
 - submittedDate ソートで新着を取得
-- ルールベースで教育的キーワードを検出し `✔︎` を付与
+- ルールベースで教育的キーワードを検出
 - トピックごとに `Recent(直近N日)` と `Educational / Beginner-friendly ✔︎` を分けて投稿
 - 送信済み arXiv ID (`v1`, `v2` 付き) を `state/state.json` に保存して重複投稿を防止
 - GitHub Actions で毎日自動実行し、`state/` 更新を自動 commit/push
